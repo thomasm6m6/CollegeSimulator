@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Three.js 3D World with Procedural Buildings and Environment</title>
+    <title>College Simulator</title>
     <style>
         body { margin: 0; overflow: hidden; }
         canvas { display: block; }
@@ -18,15 +18,18 @@
         }
 
         .top-buttons button {
-            padding: 8px 16px;
+            padding: 8px;
             border: none;
             background-color: #fff;
             border-radius: 4px;
             cursor: pointer;
-            font-family: Arial, sans-serif;
-            font-size: 14px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             transition: background-color 0.2s;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .top-buttons button:hover {
@@ -46,6 +49,7 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
             width: 300px;
             font-family: Arial, sans-serif;
+            z-index: 1001;
         }
 
         .modal.active {
@@ -130,13 +134,36 @@
             outline: none;
             border-color: #007bff;
         }
+
+        /* Backdrop styles */
+        .backdrop {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent black */
+            z-index: 1000; /* Below modal, above everything else */
+        }
+
+        .backdrop.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
     <div class="top-buttons">
-        <button id="settings-btn">Settings</button>
-        <button id="about-btn">About</button>
+        <button id="settings-btn">
+            <img src="icons/settings.svg" alt="Settings" width="24" height="24">
+        </button>
+        <button id="about-btn">
+            <img src="icons/about.svg" alt="About" width="24" height="24">
+        </button>
     </div>
+
+    <!-- Backdrop -->
+    <div class="backdrop" id="backdrop"></div>
 
     <!-- Settings Modal -->
     <div id="settings-modal" class="modal">
@@ -159,7 +186,11 @@
     <div id="about-modal" class="modal">
         <button class="close-btn" id="close-about">×</button>
         <h2>About</h2>
-        <p>This is a 3D world built with Three.js, featuring procedural buildings and environment.</p>
+        <p>
+            Welcome to Springfield University!
+            This game was built in a week for the 2025 Vibe Coding Game Jam.
+        </p>
+        <p><em>Made with</em> ☕️ <em>by <a href="https://x.com/thomasm6m6">Thomas M</a></em>.</p>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
@@ -207,9 +238,17 @@
         player.position.set(0, 0.5, 0);
 
         // Ground
-        const groundGeometry = new THREE.PlaneGeometry(200, 200);
+        const tileSize = 10;
+        const gridSize = 20;
+        const totalSize = tileSize * gridSize;
+        const groundGeometry = new THREE.PlaneGeometry(totalSize, totalSize, gridSize, gridSize);
+        groundMaterial.map.repeat.set(gridSize, gridSize);
+        groundMaterial.map.wrapS = THREE.RepeatWrapping;
+        groundMaterial.map.wrapT = THREE.RepeatWrapping;
+
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-        ground.rotation.x = Math.PI / 2;
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.set(0, 0, 0);
         scene.add(ground);
 
         // Movement controls
@@ -239,29 +278,45 @@
         const closeSettings = document.getElementById('close-settings');
         const closeAbout = document.getElementById('close-about');
         const topButtons = document.querySelector('.top-buttons');
+        const backdrop = document.getElementById('backdrop');
+
+        function toggleModal(modal, otherModal, show) {
+            if (show) {
+                modal.classList.add('active');
+                backdrop.classList.add('active');
+                otherModal.classList.remove('active');
+            } else {
+                modal.classList.remove('active');
+                backdrop.classList.remove('active');
+            }
+        }
 
         // Toggle modals
         settingsBtn.addEventListener('click', () => {
             event.stopPropagation();
-            settingsModal.classList.toggle('active');
-            aboutModal.classList.remove('active');
+            toggleModal(settingsModal, aboutModal, !settingsModal.classList.contains('active'));
         });
 
         aboutBtn.addEventListener('click', () => {
             event.stopPropagation();
-            aboutModal.classList.toggle('active');
-            settingsModal.classList.remove('active');
+            toggleModal(aboutModal, settingsModal, !aboutModal.classList.contains('active'));
         });
 
         closeSettings.addEventListener('click', () => {
             event.stopPropagation();
-            settingsModal.classList.remove('active');
+            toggleModal(settingsModal, aboutModal, false);
         });
 
         closeAbout.addEventListener('click', () => {
             event.stopPropagation();
-            aboutModal.classList.remove('active');
+            toggleModal(aboutModal, settingsModal, false);
         });
+
+        backdrop.addEventListener('click', () => {
+            event.stopPropagation();
+            toggleModal(settingsModal, aboutModal, false);
+            toggleModal(aboutModal, settingsModal, false);
+        })
 
         settingsModal.addEventListener('click', (event) => {
             event.stopPropagation();
