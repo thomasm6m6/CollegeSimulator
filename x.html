@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Three.js 3D World with Enterable Buildings</title>
+    <title>Three.js 3D World with Procedural Buildings and Environment</title>
     <style>
         body { margin: 0; overflow: hidden; }
         canvas { display: block; }
@@ -19,6 +19,34 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
+        const textureLoader = new THREE.TextureLoader();
+
+        // Function to load pixel art textures with proper settings
+        function loadPixelArtTexture(url) {
+            const texture = textureLoader.load(url);
+            texture.minFilter = THREE.NearestFilter; // Use nearest neighbor for minification
+            texture.magFilter = THREE.NearestFilter; // Use nearest neighbor for magnification
+            texture.wrapS = THREE.RepeatWrapping;    // Optional: Adjust wrapping if tiling
+            texture.wrapT = THREE.RepeatWrapping;
+            // texture.repeat.set(1, 1);             // Optional: Set repeat if needed
+            return texture;
+        }
+
+        const outerWallMaterial = new THREE.MeshBasicMaterial({ map: loadPixelArtTexture('textures/outer_wall.png') });
+        const wallMaterial = new THREE.MeshBasicMaterial({ map: loadPixelArtTexture('textures/inner_wall.png') });
+        const floorMaterial = new THREE.MeshBasicMaterial({ map: loadPixelArtTexture('textures/floor.png') });
+        const rampMaterial = new THREE.MeshBasicMaterial({ map: loadPixelArtTexture('textures/ramp.png') });
+        const pathMaterial = new THREE.MeshBasicMaterial({ map: loadPixelArtTexture('textures/path.png') });
+        const groundMaterial = new THREE.MeshBasicMaterial({
+            map: loadPixelArtTexture('textures/grass.png'),
+            side: THREE.DoubleSide
+        });
+
+        const shrubMaterial = new THREE.MeshBasicMaterial({ color: 0x228B22 }); // Forest green
+        const lampPoleMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 }); // Dark gray
+        const lampLightMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF99 }); // Light yellow
+        const grassMaterial = new THREE.MeshBasicMaterial({ color: 0x32CD32 }); // Lime green
+
         // Player
         const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
         const playerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
@@ -28,7 +56,6 @@
 
         // Ground
         const groundGeometry = new THREE.PlaneGeometry(200, 200);
-        const groundMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
         ground.rotation.x = Math.PI / 2;
         scene.add(ground);
@@ -64,9 +91,7 @@
             if (event.key in keys) keys[event.key] = false;
         });
         document.addEventListener('mousemove', (event) => {
-            if (document.pointerLockElement === document.body ||
-                document.mozPointerLockElement === document.body ||
-                document.webkitPointerLockElement === document.body) {
+            if (document.pointerLockElement === document.body) {
                 cameraYaw -= event.movementX * mouseSensitivity;
                 cameraPitch -= event.movementY * mouseSensitivity;
                 cameraPitch = Math.max(pitchMin, Math.min(pitchMax, cameraPitch));
@@ -78,7 +103,124 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // Building creation function
+        // Simple seeded RNG for consistency
+        function seededRandom(seed) {
+            const x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        }
+
+        // Function to generate floor layout with fixed wall positioning
+        function generateFloorLayout(type, width, depth, floor, seed, buildingPosition) {
+            const cellSize = 4;
+            const gridX = Math.floor(width / cellSize);
+            const gridZ = Math.floor(depth / cellSize);
+            const layout = new Array(gridX * gridZ).fill('empty');
+            const meshes = [];
+            const collisionBoxes = [];
+            const wallThickness = 0.2;
+
+            const floorSeed = seed + floor;
+
+            if (type === 'dorm') {
+                const corridorX = Math.floor(gridX / 2);
+                for (let z = 0; z < gridZ; z++) {
+                    layout[corridorX * gridZ + z] = 'corridor';
+                }
+                for (let x = 0; x < gridX; x++) {
+                    if (x !== corridorX && seededRandom(floorSeed + x) > 0.4) {
+                        const z = Math.floor(seededRandom(floorSeed + x + 1) * gridZ);
+                        layout[x * gridZ + z] = 'room';
+                        if (x < corridorX) {
+                            const wall = new THREE.Mesh(
+                                new THREE.BoxGeometry(wallThickness, 3, cellSize),
+                                wallMaterial
+                            );
+                            wall.position.set(
+                                buildingPosition.x + (x + 0.5) * cellSize - width / 2,
+                                buildingPosition.y + floor * 3 + 1.5,
+                                buildingPosition.z + z * cellSize - depth / 2 + cellSize / 2
+                            );
+                            meshes.push(wall);
+                            collisionBoxes.push(new THREE.Box3().setFromObject(wall));
+                        } else {
+                            const wall = new THREE.Mesh(
+                                new THREE.BoxGeometry(wallThickness, 3, cellSize),
+                                wallMaterial
+                            );
+                            wall.position.set(
+                                buildingPosition.x + (x - 0.5) * cellSize - width / 2,
+                                buildingPosition.y + floor * 3 + 1.5,
+                                buildingPosition.z + z * cellSize - depth / 2 + cellSize / 2
+                            );
+                            meshes.push(wall);
+                            collisionBoxes.push(new THREE.Box3().setFromObject(wall));
+                        }
+                    }
+                }
+            } else if (type === 'classroom') {
+                const roomCount = Math.floor(seededRandom(floorSeed) * 3) + 1;
+                for (let i = 0; i < roomCount; i++) {
+                    const sizeX = Math.floor(seededRandom(floorSeed + i) * 3 + 1) * cellSize;
+                    const sizeZ = Math.floor(seededRandom(floorSeed + i + 1) * 2 + 1) * cellSize;
+                    const x = Math.floor(seededRandom(floorSeed + i + 2) * (gridX - sizeX / cellSize));
+                    const z = Math.floor(seededRandom(floorSeed + i + 3) * (gridZ - sizeZ / cellSize));
+                    for (let dx = x; dx < x + sizeX / cellSize; dx++) {
+                        for (let dz = z; dz < z + sizeZ / cellSize; dz++) {
+                            if (dx < gridX && dz < gridZ) layout[dx * gridZ + dz] = 'room';
+                        }
+                    }
+                    const walls = [
+                        new THREE.Mesh(new THREE.BoxGeometry(sizeX, 3, wallThickness), wallMaterial),
+                        new THREE.Mesh(new THREE.BoxGeometry(sizeX, 3, wallThickness), wallMaterial),
+                        new THREE.Mesh(new THREE.BoxGeometry(wallThickness, 3, sizeZ), wallMaterial),
+                        new THREE.Mesh(new THREE.BoxGeometry(wallThickness, 3, sizeZ), wallMaterial)
+                    ];
+                    walls[0].position.set(
+                        buildingPosition.x + x * cellSize - width / 2 + sizeX / 2,
+                        buildingPosition.y + floor * 3 + 1.5,
+                        buildingPosition.z + z * cellSize - depth / 2 + sizeZ
+                    );
+                    walls[1].position.set(
+                        buildingPosition.x + x * cellSize - width / 2 + sizeX / 2,
+                        buildingPosition.y + floor * 3 + 1.5,
+                        buildingPosition.z + z * cellSize - depth / 2
+                    );
+                    walls[2].position.set(
+                        buildingPosition.x + x * cellSize - width / 2,
+                        buildingPosition.y + floor * 3 + 1.5,
+                        buildingPosition.z + z * cellSize - depth / 2 + sizeZ / 2
+                    );
+                    walls[3].position.set(
+                        buildingPosition.x + x * cellSize - width / 2 + sizeX,
+                        buildingPosition.y + floor * 3 + 1.5,
+                        buildingPosition.z + z * cellSize - depth / 2 + sizeZ / 2
+                    );
+                    meshes.push(...walls);
+                    collisionBoxes.push(...walls.map(w => new THREE.Box3().setFromObject(w)));
+                }
+            } else if (type === 'misc') {
+                for (let i = 0; i < 3; i++) {
+                    const x = Math.floor(seededRandom(floorSeed + i) * gridX);
+                    const z = Math.floor(seededRandom(floorSeed + i + 1) * gridZ);
+                    layout[x * gridZ + z] = 'room';
+                    const wall = new THREE.Mesh(
+                        new THREE.BoxGeometry(cellSize, 3, wallThickness),
+                        wallMaterial
+                    );
+                    wall.position.set(
+                        buildingPosition.x + x * cellSize - width / 2 + cellSize / 2,
+                        buildingPosition.y + floor * 3 + 1.5,
+                        buildingPosition.z + z * cellSize - depth / 2 + cellSize
+                    );
+                    meshes.push(wall);
+                    collisionBoxes.push(new THREE.Box3().setFromObject(wall));
+                }
+            }
+
+            return { meshes, collisionBoxes, floorMaterial };
+        }
+
+        // Building creation function with fixed wall alignment
         function createBuilding(type, position) {
             const floorHeight = 3;
             let floors, width, depth;
@@ -93,163 +235,75 @@
             const rampPositions = [];
             const wallThickness = 0.2;
 
-            // Create outer walls
+            const seed = Math.abs(Math.floor(position.x * 100 + position.z * 1000));
+
             for (let f = 0; f < floors; f++) {
                 outerCollisionBoxes[f] = [];
-                const wallMaterial = new THREE.MeshBasicMaterial({ color: 0x888888 });
-                const doorWidth = type === 'misc' ? 4 : 6;
-
                 if (f === 0) {
-                    const frontWallLeft = new THREE.Mesh(new THREE.BoxGeometry((width - doorWidth) / 2, floorHeight, wallThickness), wallMaterial);
+                    const doorWidth = type === 'misc' ? 4 : 6;
+                    const frontWallLeft = new THREE.Mesh(
+                        new THREE.BoxGeometry((width - doorWidth) / 2, floorHeight, wallThickness),
+                        outerWallMaterial
+                    );
                     frontWallLeft.position.set(position.x - width / 4, position.y + f * floorHeight + floorHeight / 2, position.z - depth / 2);
-                    const frontWallRight = new THREE.Mesh(new THREE.BoxGeometry((width - doorWidth) / 2, floorHeight, wallThickness), wallMaterial);
+                    const frontWallRight = new THREE.Mesh(
+                        new THREE.BoxGeometry((width - doorWidth) / 2, floorHeight, wallThickness),
+                        outerWallMaterial
+                    );
                     frontWallRight.position.set(position.x + width / 4, position.y + f * floorHeight + floorHeight / 2, position.z - depth / 2);
                     meshes.push(frontWallLeft, frontWallRight);
-                    outerCollisionBoxes[f].push(new THREE.Box3().setFromObject(frontWallLeft));
-                    outerCollisionBoxes[f].push(new THREE.Box3().setFromObject(frontWallRight));
+                    outerCollisionBoxes[f].push(new THREE.Box3().setFromObject(frontWallLeft), new THREE.Box3().setFromObject(frontWallRight));
                 } else {
-                    const frontWall = new THREE.Mesh(new THREE.BoxGeometry(width, floorHeight, wallThickness), wallMaterial);
+                    const frontWall = new THREE.Mesh(
+                        new THREE.BoxGeometry(width, floorHeight, wallThickness),
+                        outerWallMaterial
+                    );
                     frontWall.position.set(position.x, position.y + f * floorHeight + floorHeight / 2, position.z - depth / 2);
                     meshes.push(frontWall);
                     outerCollisionBoxes[f].push(new THREE.Box3().setFromObject(frontWall));
                 }
 
-                const backWall = new THREE.Mesh(new THREE.BoxGeometry(width, floorHeight, wallThickness), wallMaterial);
+                const backWall = new THREE.Mesh(new THREE.BoxGeometry(width, floorHeight, wallThickness), outerWallMaterial);
                 backWall.position.set(position.x, position.y + f * floorHeight + floorHeight / 2, position.z + depth / 2);
                 meshes.push(backWall);
                 outerCollisionBoxes[f].push(new THREE.Box3().setFromObject(backWall));
 
-                const leftWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, depth), wallMaterial);
+                const leftWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, depth), outerWallMaterial);
                 leftWall.position.set(position.x - width / 2, position.y + f * floorHeight + floorHeight / 2, position.z);
                 meshes.push(leftWall);
                 outerCollisionBoxes[f].push(new THREE.Box3().setFromObject(leftWall));
 
-                const rightWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, depth), wallMaterial);
+                const rightWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, depth), outerWallMaterial);
                 rightWall.position.set(position.x + width / 2, position.y + f * floorHeight + floorHeight / 2, position.z);
                 meshes.push(rightWall);
                 outerCollisionBoxes[f].push(new THREE.Box3().setFromObject(rightWall));
             }
 
-            // Create floors and inner layouts
             for (let f = 0; f < floors; f++) {
                 const floorGeometry = new THREE.PlaneGeometry(width, depth);
-                const floorMaterial = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, side: THREE.FrontSide });
+                // Pass the building position to generateFloorLayout
+                const { meshes: innerMeshes, collisionBoxes: innerBoxes, floorMaterial } = generateFloorLayout(type, width, depth, f, seed, position);
                 const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
                 floorMesh.rotation.x = -Math.PI / 2;
                 floorMesh.position.set(position.x, position.y + f * floorHeight, position.z);
-                meshes.push(floorMesh);
+                meshes.push(floorMesh, ...innerMeshes);
                 floorMeshes.push(floorMesh);
-
-                innerCollisionBoxes[f] = [];
-                const innerWallMaterial = new THREE.MeshBasicMaterial({ color: 0x777777 });
-
-                if (type === 'classroom') {
-                    const lectureHall1Width = 8;
-                    const lectureHall1Depth = 6;
-                    const lectureHall1Wall1 = new THREE.Mesh(new THREE.BoxGeometry(lectureHall1Width, floorHeight, wallThickness), innerWallMaterial);
-                    lectureHall1Wall1.position.set(position.x - width / 2 + lectureHall1Width / 2, position.y + f * floorHeight + floorHeight / 2, position.z - depth / 2 + lectureHall1Depth);
-                    const lectureHall1Wall2 = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, lectureHall1Depth), innerWallMaterial);
-                    lectureHall1Wall2.position.set(position.x - width / 2 + lectureHall1Width, position.y + f * floorHeight + floorHeight / 2, position.z - depth / 2 + lectureHall1Depth / 2);
-
-                    const lectureHall2Width = 8;
-                    const lectureHall2Depth = 6;
-                    const lectureHall2Wall1 = new THREE.Mesh(new THREE.BoxGeometry(lectureHall2Width, floorHeight, wallThickness), innerWallMaterial);
-                    lectureHall2Wall1.position.set(position.x + width / 2 - lectureHall2Width / 2, position.y + f * floorHeight + floorHeight / 2, position.z - depth / 2 + lectureHall2Depth);
-                    const lectureHall2Wall2 = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, lectureHall2Depth), innerWallMaterial);
-                    lectureHall2Wall2.position.set(position.x + width / 2 - lectureHall2Width, position.y + f * floorHeight + floorHeight / 2, position.z - depth / 2 + lectureHall2Depth / 2);
-
-                    const officeWidth = 4;
-                    const officeDepth = 4;
-                    const officeWall1 = new THREE.Mesh(new THREE.BoxGeometry(officeWidth, floorHeight, wallThickness), innerWallMaterial);
-                    officeWall1.position.set(position.x + width / 2 - officeWidth / 2, position.y + f * floorHeight + floorHeight / 2, position.z + depth / 2 - officeDepth);
-                    const officeWall2 = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, officeDepth), innerWallMaterial);
-                    officeWall2.position.set(position.x + width / 2 - officeWidth, position.y + f * floorHeight + floorHeight / 2, position.z + depth / 2 - officeDepth / 2);
-
-                    meshes.push(lectureHall1Wall1, lectureHall1Wall2, lectureHall2Wall1, lectureHall2Wall2, officeWall1, officeWall2);
-                    innerCollisionBoxes[f].push(
-                        new THREE.Box3().setFromObject(lectureHall1Wall1),
-                        new THREE.Box3().setFromObject(lectureHall1Wall2),
-                        new THREE.Box3().setFromObject(lectureHall2Wall1),
-                        new THREE.Box3().setFromObject(lectureHall2Wall2),
-                        new THREE.Box3().setFromObject(officeWall1),
-                        new THREE.Box3().setFromObject(officeWall2)
-                    );
-                } else if (type === 'dorm') {
-                    const corridorWidth = 4;
-                    const corridorWall1 = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, depth - 4), innerWallMaterial);
-                    corridorWall1.position.set(position.x - width / 2 + corridorWidth, position.y + f * floorHeight + floorHeight / 2, position.z);
-                    const corridorWall2 = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, depth - 4), innerWallMaterial);
-                    corridorWall2.position.set(position.x + width / 2 - corridorWidth, position.y + f * floorHeight + floorHeight / 2, position.z);
-
-                    const roomDepth = 4;
-                    const roomWidth = 4;
-                    for (let i = 0; i < 3; i++) {
-                        const leftRoomWall = new THREE.Mesh(new THREE.BoxGeometry(roomWidth, floorHeight, wallThickness), innerWallMaterial);
-                        leftRoomWall.position.set(position.x - width / 2 + corridorWidth + roomWidth / 2, position.y + f * floorHeight + floorHeight / 2, position.z - depth / 2 + (i + 1) * roomDepth);
-                        const rightRoomWall = new THREE.Mesh(new THREE.BoxGeometry(roomWidth, floorHeight, wallThickness), innerWallMaterial);
-                        rightRoomWall.position.set(position.x + width / 2 - corridorWidth - roomWidth / 2, position.y + f * floorHeight + floorHeight / 2, position.z - depth / 2 + (i + 1) * roomDepth);
-
-                        meshes.push(leftRoomWall, rightRoomWall);
-                        innerCollisionBoxes[f].push(
-                            new THREE.Box3().setFromObject(leftRoomWall),
-                            new THREE.Box3().setFromObject(rightRoomWall)
-                        );
-                    }
-
-                    const loungeWidth = 6;
-                    const loungeDepth = 4;
-                    const loungeWall1 = new THREE.Mesh(new THREE.BoxGeometry(loungeWidth, floorHeight, wallThickness), innerWallMaterial);
-                    loungeWall1.position.set(position.x - loungeWidth / 2, position.y + f * floorHeight + floorHeight / 2, position.z + depth / 2 - loungeDepth);
-                    const loungeWall2 = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, loungeDepth), innerWallMaterial);
-                    loungeWall2.position.set(position.x - loungeWidth, position.y + f * floorHeight + floorHeight / 2, position.z + depth / 2 - loungeDepth / 2);
-
-                    meshes.push(corridorWall1, corridorWall2, loungeWall1, loungeWall2);
-                    innerCollisionBoxes[f].push(
-                        new THREE.Box3().setFromObject(corridorWall1),
-                        new THREE.Box3().setFromObject(corridorWall2),
-                        new THREE.Box3().setFromObject(loungeWall1),
-                        new THREE.Box3().setFromObject(loungeWall2)
-                    );
-                } else if (type === 'misc') {
-                    const smallRoomWidth = 4;
-                    const smallRoomDepth = 4;
-                    const smallRoomWall1 = new THREE.Mesh(new THREE.BoxGeometry(smallRoomWidth, floorHeight, wallThickness), innerWallMaterial);
-                    smallRoomWall1.position.set(position.x + width / 2 - smallRoomWidth / 2, position.y + f * floorHeight + floorHeight / 2, position.z + depth / 2 - smallRoomDepth);
-                    const smallRoomWall2 = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, smallRoomDepth), innerWallMaterial);
-                    smallRoomWall2.position.set(position.x + width / 2 - smallRoomWidth, position.y + f * floorHeight + floorHeight / 2, position.z + depth / 2 - smallRoomDepth / 2);
-
-                    const smallRoom2Wall1 = new THREE.Mesh(new THREE.BoxGeometry(smallRoomWidth, floorHeight, wallThickness), innerWallMaterial);
-                    smallRoom2Wall1.position.set(position.x - width / 2 + smallRoomWidth / 2, position.y + f * floorHeight + floorHeight / 2, position.z + depth / 2 - smallRoomDepth);
-                    const smallRoom2Wall2 = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, floorHeight, smallRoomDepth), innerWallMaterial);
-                    smallRoom2Wall2.position.set(position.x - width / 2 + smallRoomWidth, position.y + f * floorHeight + floorHeight / 2, position.z + depth / 2 - smallRoomDepth / 2);
-
-                    meshes.push(smallRoomWall1, smallRoomWall2, smallRoom2Wall1, smallRoom2Wall2);
-                    innerCollisionBoxes[f].push(
-                        new THREE.Box3().setFromObject(smallRoomWall1),
-                        new THREE.Box3().setFromObject(smallRoomWall2),
-                        new THREE.Box3().setFromObject(smallRoom2Wall1),
-                        new THREE.Box3().setFromObject(smallRoom2Wall2)
-                    );
-                }
+                innerCollisionBoxes[f] = innerBoxes;
             }
 
-            // Create ramps
             if (floors > 1 && (type === 'classroom' || type === 'dorm')) {
                 for (let f = 0; f < floors - 1; f++) {
                     const rampWidth = 2;
                     const rampLength = 4;
                     const rampHeight = floorHeight;
                     const rampGeometry = new THREE.PlaneGeometry(rampWidth, Math.sqrt(rampLength * rampLength + rampHeight * rampHeight));
-                    const rampMaterial = new THREE.MeshBasicMaterial({ color: 0x555555, side: THREE.DoubleSide });
                     const rampMesh = new THREE.Mesh(rampGeometry, rampMaterial);
-
                     const rampX = position.x + (type === 'classroom' ? 10 : 8);
                     const rampZ = position.z - 10;
                     const rampY = position.y + f * floorHeight + rampHeight / 2;
                     rampMesh.position.set(rampX, rampY, rampZ);
                     const angle = Math.atan2(rampHeight, rampLength);
                     rampMesh.rotation.x = -angle;
-
                     meshes.push(rampMesh);
                     const rampStartZ = rampZ - rampLength / 2;
                     const rampEndZ = rampZ + rampLength / 2;
@@ -263,20 +317,141 @@
             return { meshes, floorMeshes, outerCollisionBoxes, innerCollisionBoxes, rampPositions, buildingBox, floors, floorHeight, position };
         }
 
-        // Create buildings
+        // Enhanced environment generation
+        function generateEnvironment(buildings) {
+            const envMeshes = [];
+            const globalSeed = 42; // Fixed seed for consistency
+
+            // Paths
+            const entrances = buildings.map(b => ({
+                x: b.position.x,
+                z: b.position.z - (b.buildingBox.max.z - b.buildingBox.min.z) / 2
+            }));
+            const paths = [];
+            for (let i = 1; i < entrances.length; i++) {
+                const start = entrances[i - 1];
+                const end = entrances[i];
+                const pathWidth = 2;
+                const length = Math.sqrt((end.x - start.x) ** 2 + (end.z - start.z) ** 2);
+                const pathGeometry = new THREE.PlaneGeometry(length, pathWidth);
+                const pathMesh = new THREE.Mesh(pathGeometry, pathMaterial);
+                pathMesh.position.set((start.x + end.x) / 2, 0.01, (start.z + end.z) / 2);
+                pathMesh.rotation.y = Math.atan2(end.x - start.x, end.z - start.z);
+                pathMesh.rotation.x = -Math.PI / 2;
+                paths.push(pathMesh);
+                envMeshes.push(pathMesh);
+            }
+
+            // Streetlamps along paths
+            paths.forEach((path, index) => {
+                const pathLength = path.geometry.parameters.width;
+                const lampCount = Math.floor(pathLength / 10); // One every ~10 units
+                const startPos = new THREE.Vector3().copy(entrances[index]);
+                const endPos = new THREE.Vector3().copy(entrances[index + 1]);
+                const direction = endPos.clone().sub(startPos).normalize();
+
+                for (let i = 0; i < lampCount; i++) {
+                    const t = (i + 1) / (lampCount + 1);
+                    const pos = startPos.clone().lerp(endPos, t);
+                    pos.y = 0;
+
+                    // Slight offset from path center
+                    const offset = direction.clone().cross(new THREE.Vector3(0, 1, 0)).multiplyScalar((seededRandom(globalSeed + i + index) > 0.5 ? 1 : -1) * 1.5);
+
+                    const pole = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.1, 0.1, 4, 8),
+                        lampPoleMaterial
+                    );
+                    pole.position.copy(pos).add(offset);
+                    pole.position.y = 2; // Half height
+
+                    const light = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.3, 8, 8),
+                        lampLightMaterial
+                    );
+                    light.position.copy(pole.position).add(new THREE.Vector3(0, 2, 0));
+
+                    envMeshes.push(pole, light);
+                }
+            });
+
+            // Shrubs
+            const shrubCount = 50; // Arbitrary number
+            for (let i = 0; i < shrubCount; i++) {
+                const x = (seededRandom(globalSeed + i) * 200) - 100;
+                const z = (seededRandom(globalSeed + i + 1) * 200) - 100;
+                let valid = true;
+
+                // Avoid buildings and paths
+                for (let b of buildings) {
+                    if (b.buildingBox.containsPoint(new THREE.Vector3(x, 0, z))) {
+                        valid = false;
+                        break;
+                    }
+                }
+                for (let p of paths) {
+                    const box = new THREE.Box3().setFromObject(p).expandByScalar(1);
+                    if (box.containsPoint(new THREE.Vector3(x, 0, z))) {
+                        valid = false;
+                        break;
+                    }
+                }
+
+                if (valid) {
+                    const shrub = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.5, 0.8, 1.5, 8),
+                        shrubMaterial
+                    );
+                    shrub.position.set(x, 0.75, z);
+                    envMeshes.push(shrub);
+                }
+            }
+
+            // Grass patches
+            const grassCount = 30;
+            for (let i = 0; i < grassCount; i++) {
+                const x = (seededRandom(globalSeed + i + shrubCount) * 200) - 100;
+                const z = (seededRandom(globalSeed + i + shrubCount + 1) * 200) - 100;
+                let valid = true;
+
+                for (let b of buildings) {
+                    if (b.buildingBox.containsPoint(new THREE.Vector3(x, 0, z))) {
+                        valid = false;
+                        break;
+                    }
+                }
+                for (let p of paths) {
+                    const box = new THREE.Box3().setFromObject(p).expandByScalar(1);
+                    if (box.containsPoint(new THREE.Vector3(x, 0, z))) {
+                        valid = false;
+                        break;
+                    }
+                }
+
+                if (valid) {
+                    const grass = new THREE.Mesh(
+                        new THREE.PlaneGeometry(3, 3),
+                        grassMaterial
+                    );
+                    grass.rotation.x = -Math.PI / 2;
+                    grass.position.set(x, 0.01, z);
+                    envMeshes.push(grass);
+                }
+            }
+
+            return envMeshes;
+        }
+
+        // Create buildings and environment
         const buildings = [
             createBuilding('dorm', new THREE.Vector3(20, 0, 20)),
-            createBuilding('dorm', new THREE.Vector3(-30, 0, -30)),
             createBuilding('classroom', new THREE.Vector3(50, 0, 50)),
-            createBuilding('classroom', new THREE.Vector3(-60, 0, 60)),
             createBuilding('misc', new THREE.Vector3(80, 0, 80)),
-            createBuilding('misc', new THREE.Vector3(-80, 0, -80)),
-            createBuilding('dorm', new THREE.Vector3(100, 0, 0)),
-            createBuilding('classroom', new THREE.Vector3(0, 0, 100)),
-            createBuilding('misc', new THREE.Vector3(-100, 0, 0)),
-            createBuilding('dorm', new THREE.Vector3(0, 0, -100))
+            createBuilding('dorm', new THREE.Vector3(-30, 0, -30))
         ];
         buildings.forEach(building => building.meshes.forEach(mesh => scene.add(mesh)));
+        const envMeshes = generateEnvironment(buildings);
+        envMeshes.forEach(mesh => scene.add(mesh));
 
         // Raycaster for camera collision
         const raycaster = new THREE.Raycaster();
@@ -284,12 +459,10 @@
         function animate() {
             requestAnimationFrame(animate);
 
-            // Update target camera distance
             targetCameraDistance = currentBuilding ? cameraDistanceInside : cameraDistanceOutside;
             cameraDistance += (targetCameraDistance - cameraDistance) * 0.1;
             cameraDistance = Math.max(minCameraDistance, Math.min(maxCameraDistance, cameraDistance));
 
-            // Calculate ideal camera position
             const cameraOffset = new THREE.Vector3(
                 cameraDistance * Math.sin(cameraYaw) * Math.cos(cameraPitch),
                 cameraDistance * Math.sin(cameraPitch),
@@ -297,7 +470,6 @@
             );
             const idealCameraPosition = player.position.clone().add(cameraOffset);
 
-            // Raycast from player to camera to detect obstructions
             const direction = idealCameraPosition.clone().sub(player.position).normalize();
             raycaster.set(player.position, direction);
             const intersects = raycaster.intersectObjects(scene.children, true);
@@ -307,14 +479,10 @@
                 const maxDistance = Math.max(minCameraDistance, intersects[0].distance - 0.5);
                 adjustedCameraPosition.copy(player.position).add(direction.multiplyScalar(maxDistance));
             }
-
-            // Ensure camera stays above player's feet
             adjustedCameraPosition.y = Math.max(adjustedCameraPosition.y, player.position.y - 0.5);
-
             camera.position.copy(adjustedCameraPosition);
             camera.lookAt(player.position);
 
-            // Player movement
             const cameraForward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             cameraForward.y = 0;
             cameraForward.normalize();
@@ -328,7 +496,6 @@
             if (keys.a) newPosition.add(cameraRight.clone().multiplyScalar(-moveSpeed));
             if (keys.d) newPosition.add(cameraRight.clone().multiplyScalar(moveSpeed));
 
-            // Building and ramp logic
             let isInside = false;
             buildings.forEach(building => {
                 if (building.buildingBox.containsPoint(newPosition)) {
@@ -341,11 +508,9 @@
                 currentFloor = 0;
                 newPosition.y = 0.5;
             } else {
-                // Calculate current floor based on previous Y position
                 currentFloor = Math.round((player.position.y - currentBuilding.position.y - 0.5) / currentBuilding.floorHeight);
                 currentFloor = Math.max(0, Math.min(currentBuilding.floors - 1, currentFloor));
 
-                // Check if on ramp
                 let onRamp = false;
                 for (let f = 0; f < currentBuilding.floors - 1; f++) {
                     const ramp = currentBuilding.rampPositions[f];
@@ -362,7 +527,6 @@
                 }
             }
 
-            // Collision detection
             let collision = false;
             const playerBox = new THREE.Box3().setFromCenterAndSize(newPosition, new THREE.Vector3(1, 1, 1));
             if (currentBuilding) {
