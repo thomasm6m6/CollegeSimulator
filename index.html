@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>College Simulator</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <a target="_blank" href="https://jam.pieter.com"
+        style="font-family: 'system-ui', sans-serif; position: fixed; bottom: -1px; right: -1px; padding: 7px; font-size: 14px; font-weight: bold; background: #fff; color: #000; text-decoration: none; z-index: 10; border-top-left-radius: 12px; z-index: 10000; border: 1px solid #fff;">🕹️
+        Vibe Jam 2025</a>
+    <div class="top-buttons">
+        <button id="settings-btn"><img src="icons/settings.svg" alt="Settings" width="24" height="24"></button>
+        <button id="about-btn"><img src="icons/about.svg" alt="About" width="24" height="24"></button>
+    </div>
+    <div class="backdrop" id="backdrop"></div>
+    <div id="settings-modal" class="modal">
+        <button class="close-btn" id="close-settings">×</button>
+        <h2>Settings</h2>
+        <div class="checkbox-container">
+            <input type="checkbox" id="adult-content" name="adult-content">
+            <label for="adult-content">18+</label>
+        </div>
+        <div class="dropdown-container">
+            <select id="role-switch">
+                <option value="student">Student</option>
+                <option value="professor">Professor</option>
+                <option value="administrator">Administrator</option>
+            </select>
+        </div>
+    </div>
+    <div id="about-modal" class="modal">
+        <button class="close-btn" id="close-about">×</button>
+        <h2>About</h2>
+        <p>Welcome to Springfield University! This game was built in a week for the 2025 Vibe Coding Game Jam.</p>
+        <p><em>Made with</em> ☕️ <em>by <a href="https://x.com/thomasm6m6" style="text-decoration:none">Thomas M</a></em>.</p>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="main.js"></script>
+</body>
+</html>
